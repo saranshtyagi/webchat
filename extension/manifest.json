@@ -32,8 +32,7 @@
   ],
 
   "host_permissions": [
-    "https://webchat-api-441y.onrender.com/*",
-    "<all_urls>"
+    "https://webchat-api-441y.onrender.com/*"
   ],
 
   "icons": {
