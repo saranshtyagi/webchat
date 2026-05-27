@@ -1,4 +1,5 @@
-import os 
+import os
+import bs4
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -17,19 +18,29 @@ def scrape_and_store(url: str, session_id: str) -> dict:
 
     # Step 1: Load the webpage
 
-    loader = WebBaseLoader(url)
+    strainer = bs4.SoupStrainer(
+        ["article", "main", "p", "h1", "h2", "h3", "h4", "li"],
+    )
+
+    loader = WebBaseLoader(
+        url,
+        bs_kwargs={"parse_only": strainer},
+    )
     docs = loader.load()
 
     page_title = docs[0].metadata.get("title", url) if docs else url
 
+    for doc in docs:
+        doc.page_content = " ".join(doc.page_content.split())
+
     #Step 2: Split into chunks 
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800, 
-        chunk_overlap=80, 
+        chunk_size=1000,
+        chunk_overlap=150,
         separators=["\n\n", "\n", ". ", " ", ""]
     )
-    chunks =  splitter.split_documents(docs)
+    chunks = splitter.split_documents(docs)
 
     # Step 3: Embed the chunks
 
