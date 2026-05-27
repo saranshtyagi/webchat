@@ -5,9 +5,7 @@ from langchain_core.output_parsers import StrOutputParser
 from app.store import session_store
 
 RAG_PROMPT = PromptTemplate(
-    template="""You are a helpful assistant that answers questions about a webpage. Use ONLY the information in the context below to answer. 
-    If the answer is not in the context, say "I could not find that on this page."
-    Be concise and direct.
+    template="""You are a helpful assistant answering questions about a webpage the user is currently viewing. Use the context below to answer the question. The context is extracted from the page, so trust it. If the context genuinely does not contain the answer, say "I could not find that on this page". Keep the answer concise and direct. Do not say "based on the context", just answer naturally.
     Context: 
     {context}
     
@@ -26,7 +24,7 @@ def answer_question(session_id: str, question: str) -> str:
     # Step 1: Look up this session's vector store and raise KeyError if not found
     vectorstore = session_store[session_id]
     # Step 2: Retrieve relevant chunks: similarity search embeds the question and returns the k=4 closest chunks
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
     relevant_docs = retriever.invoke(question)
     # combine the retrieved chunks into one context string
     context = "\n\n---\n\n".join(doc.page_content for doc in relevant_docs)
