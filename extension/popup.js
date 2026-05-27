@@ -25,6 +25,66 @@ let sessionId   = null;
 let currentTabId = null;
 let isLoading   = false;
 
+// ── Helpers: safe JSON / error parsing ─────────────────────────────────────────
+async function readResponseBody(res) {
+  // Read the body ONCE (Response streams can only be read once)
+  const text = await res.text();
+  const contentType = res.headers.get("content-type") || "";
+  return { text, contentType };
+}
+
+function tryParseJson(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function buildHttpError(res, context = "") {
+  const { text, contentType } = await readResponseBody(res);
+
+  // If it's JSON, extract a useful message
+  if (contentType.includes("application/json")) {
+    const j = tryParseJson(text);
+    const msg =
+      (j && (j.detail || j.message || j.error)) ||
+      (text ? text.slice(0, 200) : "Unknown JSON error");
+    return new Error(`${context}${msg} (HTTP ${res.status})`);
+  }
+
+  // Not JSON (often HTML). Show a short snippet for debugging.
+  const snippet = text
+    ? text.replace(/\s+/g, " ").slice(0, 220)
+    : "Empty response body";
+  const typeLabel = contentType ? `content-type: ${contentType}` : "no content-type";
+
+  return new Error(
+    `${context}Non-JSON response from server (${typeLabel}). ` +
+    `Snippet: ${snippet} (HTTP ${res.status})`
+  );
+}
+
+async function safeJson(res, context = "") {
+  // Only call this when you EXPECT a JSON success response
+  const { text, contentType } = await readResponseBody(res);
+
+  if (!contentType.includes("application/json")) {
+    const snippet = text ? text.replace(/\s+/g, " ").slice(0, 220) : "Empty response body";
+    throw new Error(
+      `${context}Expected JSON but got (${contentType || "no content-type"}). ` +
+      `Snippet: ${snippet} (HTTP ${res.status})`
+    );
+  }
+
+  const j = tryParseJson(text);
+  if (!j) {
+    throw new Error(`${context}Invalid JSON from server (HTTP ${res.status}). Body was empty/invalid.`);
+  }
+  return j;
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   // Get the active tab
@@ -77,11 +137,10 @@ async function scrapeCurrentPage(tab) {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || `Server error ${res.status}`);
+      throw await buildHttpError(res, "Could not load this page: ");
     }
 
-    const data = await res.json();
+    const data = await safeJson(res, "Scrape failed: ");
     sessionId = data.session_id;
 
     // Store session in background.js so it persists across popup open/close
@@ -98,7 +157,10 @@ async function scrapeCurrentPage(tab) {
   } catch (err) {
     setStatus("error", "error");
     setHint("error", `failed: ${err.message}`);
-    appendMessage("error", `Could not load this page: ${err.message}. Try the rescan button, or check if the page is publicly accessible.`);
+    appendMessage(
+      "error",
+      `Could not load this page: ${err.message}. Try the rescan button, or check if the page is publicly accessible.`
+    );
   } finally {
     rescanBtn.classList.remove("spinning");
   }
@@ -132,11 +194,10 @@ async function sendQuestion() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || `Server error ${res.status}`);
+      throw await buildHttpError(res, "Chat failed: ");
     }
 
-    const data = await res.json();
+    const data = await safeJson(res, "Chat failed: ");
     typingEl.remove();
     appendMessage("ai", data.answer);
 
