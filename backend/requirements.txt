@@ -15,7 +15,7 @@ lxml==5.3.0
 
 # Embeddings & vector store
 sentence-transformers==3.1.1
-faiss-cpu==1.8.0
+faiss-cpu==1.14.2
 
 # HTTP
 requests==2.32.3
