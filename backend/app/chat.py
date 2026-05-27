@@ -1,7 +1,7 @@
-import os
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_community.retrievers import BM25Retriever
 
 from app.store import get_session
 
@@ -16,16 +16,13 @@ Answer:""",
 )
 
 def answer_question(session_id: str, question: str) -> str:
-    """
-    Retrieve relevant chunks for the question and generate an answer via Groq.
+    docs = get_session(session_id)
 
-    Raises:
-        KeyError: if session_id doesn't exist / expired / evicted
-    """
-    vectorstore = get_session(session_id)
-
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
+    # Keyword-based retrieval (no embeddings, very low memory)
+    retriever = BM25Retriever.from_documents(docs)
+    retriever.k = 6
     relevant_docs = retriever.invoke(question)
+
     context = "\n\n---\n\n".join(doc.page_content for doc in relevant_docs)
 
     llm = ChatGroq(
@@ -34,7 +31,5 @@ def answer_question(session_id: str, question: str) -> str:
         max_tokens=512,
     )
 
-    parser = StrOutputParser()
-    chain = RAG_PROMPT | llm | parser
-
+    chain = RAG_PROMPT | llm | StrOutputParser()
     return chain.invoke({"context": context, "question": question})

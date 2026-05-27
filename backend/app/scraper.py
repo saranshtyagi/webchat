@@ -3,26 +3,17 @@ import bs4
 
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
 
 from app.store import set_session
 
 os.environ.setdefault("USER_AGENT", "Mozilla/5.0 (WebChat Extension)")
 
-# ---- HARD LIMITS (important for 512MB) ----
 MAX_DOC_CHARS = 200_000
 MAX_TOTAL_CHARS = 400_000
-MAX_CHUNKS = 200
+MAX_CHUNKS = 250
 
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 120
-
-# ---- Load embeddings ONCE (critical) ----
-EMBEDDINGS = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
-    model_kwargs={"device": "cpu"},
-)
 
 def _normalize_whitespace(text: str) -> str:
     return " ".join((text or "").split())
@@ -35,10 +26,8 @@ def _trim_docs(docs):
         if not content:
             continue
 
-        # cap per-doc
         content = content[:MAX_DOC_CHARS]
 
-        # cap total
         remaining = MAX_TOTAL_CHARS - total
         if remaining <= 0:
             break
@@ -50,14 +39,7 @@ def _trim_docs(docs):
     return trimmed
 
 def scrape_and_store(url: str, session_id: str) -> dict:
-    """
-    Load a webpage, chunk it, embed it, and store the vector store in memory.
-
-    Returns:
-        dict with 'title' and 'chunks' count.
-    """
     strainer = bs4.SoupStrainer(["article", "main", "p", "h1", "h2", "h3", "h4", "li"])
-
     loader = WebBaseLoader(url, bs_kwargs={"parse_only": strainer})
     docs = loader.load()
 
@@ -71,13 +53,10 @@ def scrape_and_store(url: str, session_id: str) -> dict:
         separators=["\n\n", "\n", ". ", " ", ""],
     )
     chunks = splitter.split_documents(docs)
-
     if len(chunks) > MAX_CHUNKS:
         chunks = chunks[:MAX_CHUNKS]
 
-    vectorstore = FAISS.from_documents(chunks, EMBEDDINGS)
-
-    # Use bounded store (LRU/TTL)
-    set_session(session_id, vectorstore)
+    # Store chunks (Documents) in memory
+    set_session(session_id, chunks)
 
     return {"title": page_title, "chunks": len(chunks)}
