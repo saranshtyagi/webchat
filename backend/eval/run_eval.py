@@ -13,7 +13,7 @@ CASES = [
         "qas": [
             {"q": "What is a large language model?", "expect_any": ["language model", "neural", "trained on", "text"]},
             {"q": "What architecture are many LLMs based on?", "expect_any": ["transformer"]},
-            {"q": "Name one capability of LLMs.", "expect_any": ["summar", "translat", "generat", "answer", "image", "multimodal"]},
+            {"q": "Name one capability of LLMs.", "expect_any": ["summary", "translate", "generate", "answer", "image", "multimodal"]},
         ],
     },
     {
