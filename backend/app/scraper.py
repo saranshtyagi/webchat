@@ -1,7 +1,7 @@
-# app/scraper.py
 import os
 import bs4
 import numpy as np
+from typing import Optional, List
 
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -11,17 +11,23 @@ from app.store import set_session
 
 os.environ.setdefault("USER_AGENT", "Mozilla/5.0 (WebChat Extension)")
 
-MAX_DOC_CHARS = 200_000
-MAX_TOTAL_CHARS = 400_000
-MAX_CHUNKS = 300
+MAX_DOC_CHARS = 120_000
+MAX_TOTAL_CHARS = 150_000
+MAX_CHUNKS = 100
 
-CHUNK_SIZE = 900
-CHUNK_OVERLAP = 120
+CHUNK_SIZE = 800
+CHUNK_OVERLAP = 80
 
 EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "BAAI/bge-small-en-v1.5")
 
-# Create embedder once
-_EMBEDDER = TextEmbedding(model_name=EMBED_MODEL_NAME)
+_EMBEDDER: Optional[TextEmbedding] = None
+
+def _get_embedder() -> TextEmbedding:
+    global _EMBEDDER
+    if _EMBEDDER is None:
+        # Lazy init to avoid startup OOM / cold-start spikes
+        _EMBEDDER = TextEmbedding(model_name=EMBED_MODEL_NAME)
+    return _EMBEDDER
 
 def _normalize_whitespace(text: str) -> str:
     return " ".join((text or "").split())
@@ -35,10 +41,10 @@ def _trim_docs(docs):
             continue
 
         content = content[:MAX_DOC_CHARS]
-
         remaining = MAX_TOTAL_CHARS - total
         if remaining <= 0:
             break
+
         content = content[:remaining]
         total += len(content)
 
@@ -46,10 +52,17 @@ def _trim_docs(docs):
         trimmed.append(d)
     return trimmed
 
-def _embed_texts(texts):
-   
-    vecs = list(_EMBEDDER.embed(texts))
-    return np.asarray(vecs, dtype=np.float32)
+def _embed_texts_batched(texts: List[str], batch_size: int = 16) -> np.ndarray:
+    embedder = _get_embedder()
+    vecs = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        # stream results; don't build a single giant list from the iterator at once
+        for v in embedder.embed(batch):
+            vecs.append(np.asarray(v, dtype=np.float32))
+    if not vecs:
+        return np.zeros((0, 1), dtype=np.float32)
+    return np.vstack(vecs)
 
 def scrape_and_store(url: str, session_id: str) -> dict:
     strainer = bs4.SoupStrainer(["article", "main", "p", "h1", "h2", "h3", "h4", "li"])
@@ -66,14 +79,12 @@ def scrape_and_store(url: str, session_id: str) -> dict:
         separators=["\n\n", "\n", ". ", " ", ""],
     )
     chunks = splitter.split_documents(docs)
-
     if len(chunks) > MAX_CHUNKS:
         chunks = chunks[:MAX_CHUNKS]
 
     texts = [c.page_content for c in chunks]
-    vectors = _embed_texts(texts)  # (n_chunks, dim)
+    vectors = _embed_texts_batched(texts, batch_size=16)
 
-    # Store both: docs for BM25, vectors for semantic
     set_session(session_id, chunks, vectors)
 
     return {"title": page_title, "chunks": len(chunks)}
